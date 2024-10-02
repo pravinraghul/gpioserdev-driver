@@ -5,4 +5,4 @@ In this design, the strobe signal controls the timing, and on each rising edge, 
 
 The data is transmitted in the order of the least significant bit (LSB) to the most significant bit (MSB) in the below example, but it can be configured to transmit in the opposite direction.
 
-![gpioserdev-data-transfer-design.png](https://github.com/pravinraghul/gpiobitserdev-driver/blob/master/gpioserdev-data-transfer-design.png)
+![gpioserdev-data-transfer-design.png](https://github.com/pravinraghul/gpioserdev-driver/blob/main/gpioserdev-data-transfer-design.png)
