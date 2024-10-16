@@ -35,6 +35,8 @@ static int gpioserdev_close(struct inode *device_file, struct file *instance);
 static ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs);
 static long gpioserdev_ioctl(struct file *File, unsigned int cmd, unsigned long arg);
 
+static int delay_us = GPIOSERDEV_DELAY_US;
+
 // File operations
 static struct file_operations gpioserdev_fops = {
 	.owner = THIS_MODULE,
@@ -118,7 +120,7 @@ int gpioserdev_close(struct inode *device_file, struct file *instance) {
  * Writes a byte of data to the GPIO pins.
  *
  * This function takes a byte of data and writes it to the GPIO data pin, one bit
- * at a time. It sets the strobe pin high, waits for the GPIOSERDEV_DELAY_US
+ * at a time. It sets the strobe pin high, waits for the delay_us
  * delay, then sets the strobe pin low again. This sequence is repeated for each
  * bit in the byte, from the least significant bit to the most significant bit.
  *
@@ -133,9 +135,9 @@ void gpioserdev_write_byte(char byte) {
 		value = (byte >> i) & 0x01;
 		gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
 		gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
-		msleep(GPIOSERDEV_DELAY_US);
+		msleep(delay_us);
 		gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
-		msleep(GPIOSERDEV_DELAY_US);
+		msleep(delay_us);
 	}
 	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
 }
@@ -271,7 +273,9 @@ static void __exit gpioserdev_exit(void)
 
 module_init(gpioserdev_init);
 module_exit(gpioserdev_exit);
+module_param(delay_us, int, 0644);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Pravin Raghul S");
 MODULE_DESCRIPTION("A Custom GPIO Serial Communication Driver");
+MODULE_PARM_DESC(delay_us, "Delay in microseconds(default: 25us)");
