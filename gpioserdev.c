@@ -9,8 +9,8 @@
 #include <linux/delay.h>
 
  // GPIO pin definitions
-#define GPIOSERDEV_STRB_PINID (533) // GPIO21, based on the /sys/kernel/debug/gpio output
-#define GPIOSERDEV_DATA_PINID (538) // GPIO26, based on the /sys/kernel/debug/gpio output
+#define GPIOSERDEV_STRB_PINID (531) // GPIO19, based on the /sys/kernel/debug/gpio output
+#define GPIOSERDEV_DATA_PINID (528) // GPIO16, based on the /sys/kernel/debug/gpio output
 
 // Bit transaction delay
 #define GPIOSERDEV_DELAY_US 25
