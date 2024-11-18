@@ -33,7 +33,7 @@ static int gpioserdev_close(struct inode *device_file, struct file *instance);
 static ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs);
 static long gpioserdev_ioctl(struct file *File, unsigned int cmd, unsigned long arg);
 
-static int gpioserdev_pinsetup(void);
+static int gpioserdev_pinsetup(struct device_node *node);
 static void gpioserdev_pinfree(void);
 
 static int delay_us = GPIOSERDEV_DELAY_US;
@@ -47,27 +47,14 @@ static struct file_operations gpioserdev_fops = {
 };
 
 /**
- * gpioserdev_probe - Probe function for the gpioserdev platform device
+ * Initializes and configures the GPIO pins used by the gpioserdev device.
  *
- * This function is called when the gpioserdev platform device is probed. It performs the following tasks:
+ * This function requests the GPIO pins for the strobe and data signals, sets them
+ * to output mode, and initializes them to a low state.
  *
- * - Retrieves the GPIO pin IDs for the strobe and data pins from the device tree
- * - Allocates a character device region
- * - Creates a device class and device file
- * - Initializes the character device
- * - Registers the character device with the kernel
- * - Sets up the GPIO pins used by the module
- *
- * If any of these steps fail, the function performs cleanup and returns an error code.
- *
- * @pdev: The platform device structure
- *
- * @return: 0 on success, negative error code on failure
+ * Returns 0 on success, or a negative error code on failure.
  */
-static int gpioserdev_probe(struct platform_device *pdev)
-{
-  struct device_node *node = pdev->dev.of_node;
-
+static int gpioserdev_pinsetup(struct device_node *node) {
   // Get GPIO pins from device tree
   gpioserdev.strobe_pin = of_get_named_gpio(node, "strobe-pin", 0);
   if (!gpio_is_valid(gpioserdev.strobe_pin)) {
@@ -81,82 +68,6 @@ static int gpioserdev_probe(struct platform_device *pdev)
     return -EINVAL;
   }
 
-  // Initialize the character device
-  if(alloc_chrdev_region(&gpioserdev.devnum, 0, 1, "gpioserdev") < 0) {
-    printk("Device number could not be allocated!\n");
-    return -1;
-  }
-
-  if((gpioserdev.class = class_create("gpioserdev_class")) == NULL) {
-    printk("Device class can not be created!\n");
-    goto class_cleanup;
-  }
-
-  if(device_create(gpioserdev.class, NULL, gpioserdev.devnum, NULL, "gpioserdev") == NULL) {
-    printk("Can not create device file!\n");
-    goto device_cleanup;
-  }
-
-  cdev_init(&gpioserdev.cdev, &gpioserdev_fops);
-
-  if(cdev_add(&gpioserdev.cdev, gpioserdev.devnum, 1) == -1) {
-    printk("Registering of device to kernel failed!\n");
-    goto cdevadd_cleanup;
-  }
-
-  // Setup GPIO pins
-  if (gpioserdev_pinsetup() != 0)
-    goto gpiopin_cleanup;
-
-  printk("gpioserdev probe successful\n");
-  return 0;
-
- gpiopin_cleanup:
-  cdev_del(&gpioserdev.cdev);
- cdevadd_cleanup:
-  device_destroy(gpioserdev.class, gpioserdev.devnum);
- device_cleanup:
-  class_destroy(gpioserdev.class);
- class_cleanup:
-  unregister_chrdev_region(gpioserdev.devnum, 1);
-  return -1;
-}
-
-/**
- * gpioserdev_remove - Remove the gpioserdev module
- *
- * This function is called when the gpioserdev module is being unloaded. It performs the necessary
- * cleanup tasks, including:
- *
- * - Freeing the GPIO pins used by the module
- * - Removing the character device from the kernel
- * - Destroying the device file and device class
- * - Unregistering the character device region
- *
- * @pdev: The platform device associated with the gpioserdev module
- *
- * Returns: 0 on success, negative value on failure
- */
-static int gpioserdev_remove(struct platform_device *pdev)
-{
-  gpioserdev_pinfree();
-  cdev_del(&gpioserdev.cdev);
-  device_destroy(gpioserdev.class, gpioserdev.devnum);
-  class_destroy(gpioserdev.class);
-  unregister_chrdev_region(gpioserdev.devnum, 1);
-  printk("gpioserdev removed\n");
-  return 0;
-}
-
-/**
- * Initializes and configures the GPIO pins used by the gpioserdev device.
- *
- * This function requests the GPIO pins for the strobe and data signals, sets them
- * to output mode, and initializes them to a low state.
- *
- * Returns 0 on success, or a negative error code on failure.
- */
-static int gpioserdev_pinsetup(void) {
   if(gpio_request(gpioserdev.strobe_pin, "gpio-strobe")) {
     printk("Allocation failed for gpio-strobe: %d\n", gpioserdev.strobe_pin);
     return -1;
@@ -298,28 +209,6 @@ long gpioserdev_ioctl(struct file *File, unsigned int cmd, unsigned long arg) {
 }
 
 /**
- * Device tree compatible string for the gpioserdev platform device.
- */
-static const struct of_device_id gpioserdev_of_match[] = {
-  { .compatible = "pravin,gpioserdev" },
-  { }
-};
-MODULE_DEVICE_TABLE(of, gpioserdev_of_match);
-
-/**
- * @brief Platform driver for the gpioserdev device
- *
- */
-static struct platform_driver gpioserdev_driver = {
-  .probe = gpioserdev_probe,
-  .remove = gpioserdev_remove,
-  .driver = {
-    .name = "gpioserdev",
-    .of_match_table = gpioserdev_of_match,
-  },
-};
-
-/**
  * @brief Initialize the gpioserdev module
  *
  * This function is called when the gpioserdev module is loaded. It first checks if the
@@ -335,13 +224,45 @@ static int __init gpioserdev_init(void)
     return -ENODEV;
   }
 
-  int ret = platform_driver_register(&gpioserdev_driver);
-  if (ret) {
-    printk("Failed to register the plaform device\n");
-    return ret;
+  // Initialize the character device
+  if(alloc_chrdev_region(&gpioserdev.devnum, 0, 1, "gpioserdev") < 0) {
+    printk("Device number could not be allocated!\n");
+    return -1;
   }
 
+  if((gpioserdev.class = class_create("gpioserdev_class")) == NULL) {
+    printk("Device class can not be created!\n");
+    goto class_cleanup;
+  }
+
+  if(device_create(gpioserdev.class, NULL, gpioserdev.devnum, NULL, "gpioserdev") == NULL) {
+    printk("Can not create device file!\n");
+    goto device_cleanup;
+  }
+
+  cdev_init(&gpioserdev.cdev, &gpioserdev_fops);
+
+  if(cdev_add(&gpioserdev.cdev, gpioserdev.devnum, 1) == -1) {
+    printk("Registering of device to kernel failed!\n");
+    goto cdevadd_cleanup;
+  }
+
+  // Setup GPIO pins
+  if (gpioserdev_pinsetup(node) != 0)
+    goto gpiopin_cleanup;
+
+  printk("gpioserdev initialized successfully\n");
   return 0;
+
+ gpiopin_cleanup:
+  cdev_del(&gpioserdev.cdev);
+ cdevadd_cleanup:
+  device_destroy(gpioserdev.class, gpioserdev.devnum);
+ device_cleanup:
+  class_destroy(gpioserdev.class);
+ class_cleanup:
+  unregister_chrdev_region(gpioserdev.devnum, 1);
+  return -1;
 }
 
 /**
@@ -352,7 +273,12 @@ static int __init gpioserdev_init(void)
  */
 static void __exit gpioserdev_exit(void)
 {
-  platform_driver_unregister(&gpioserdev_driver);
+  gpioserdev_pinfree();
+  cdev_del(&gpioserdev.cdev);
+  device_destroy(gpioserdev.class, gpioserdev.devnum);
+  class_destroy(gpioserdev.class);
+  unregister_chrdev_region(gpioserdev.devnum, 1);
+  printk("gpioserdev module removed\n");
 }
 
 module_init(gpioserdev_init);
