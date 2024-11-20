@@ -1,11 +1,23 @@
-obj-m  := gpioserdev.o
-# should be this "/lib/modules/$(shell uname -r)/build
-KERNELDIR ?= /lib/modules/6.6.51-v7+/build
+MODULE=gpioserdev
+CROSS_COMPILER=aarch64-linux-gnu-
+
+obj-m  := $(MODULE).o
+KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 PWD    := $(shell pwd)
 
-all:
+all: build
 
 build:
-	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- M=$(PWD) modules
+	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=$(CROSS_COMPILER) M=$(PWD) modules
+
 clean:
-	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- M=$(PWD) clean
+	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=$(CROSS_COMPILER) M=$(PWD) clean
+
+load:
+	sudo insmod $(MODULE).ko
+
+unload:
+	sudo rmmod $(MODULE)
+
+dist-clean:
+	rm *~ -rf

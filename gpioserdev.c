@@ -9,16 +9,11 @@
 #include <linux/delay.h>
 
  // GPIO pin definitions
-#define GPIOSERDEV_STRB_PINID (533) // GPIO21, based on the /sys/kernel/debug/gpio output
-#define GPIOSERDEV_DATA_PINID (538) // GPIO26, based on the /sys/kernel/debug/gpio output
+#define GPIOSERDEV_STRB_PINID (531) // GPIO19, based on the /sys/kernel/debug/gpio output
+#define GPIOSERDEV_DATA_PINID (528) // GPIO16, based on the /sys/kernel/debug/gpio output
 
 // Bit transaction delay
-#define GPIOSERDEV_DELAY_US 25
-
-// IOCTL definitions
-#define GPIOSERDEV_IOC_MAGIC 0x15
-#define GPIOSERDEV_STRBPIN _IOWR(GPIOSERDEV_IOC_MAGIC, 1, unsigned long)
-#define GPIOSERDEV_DATAPIN _IOWR(GPIOSERDEV_IOC_MAGIC, 2, unsigned long)
+#define GPIOSERDEV_DELAY_US 750
 
 // Device structure
 struct gpioserdev_t {
@@ -33,7 +28,9 @@ struct gpioserdev_t gpioserdev;
 static int gpioserdev_open(struct inode *device_file, struct file *instance);
 static int gpioserdev_close(struct inode *device_file, struct file *instance);
 static ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs);
-static long gpioserdev_ioctl(struct file *File, unsigned int cmd, unsigned long arg);
+
+static int gpioserdev_pinsetup(void);
+static void gpioserdev_pinfree(void);
 
 // File operations
 static struct file_operations gpioserdev_fops = {
@@ -41,16 +38,11 @@ static struct file_operations gpioserdev_fops = {
 	.open = gpioserdev_open,
 	.release = gpioserdev_close,
 	.write = gpioserdev_write,
-	.unlocked_ioctl = gpioserdev_ioctl
 };
 
 /**
- * Initializes and configures the GPIO pins used by the gpioserdev device.
- *
- * This function requests the GPIO pins for the strobe and data signals, sets them
- * to output mode, and initializes them to a low state.
- *
- * Returns 0 on success, or a negative error code on failure.
+ * Sets up GPIO pins by getting their numbers from the device tree and configuring them as outputs.
+ * Handles pin allocation, validation, and initial low-state setup.
  */
 static int gpioserdev_pinsetup(void) {
 
@@ -82,10 +74,8 @@ static int gpioserdev_pinsetup(void) {
 }
 
 /**
- * Frees the GPIO pins used by the gpioserdev device.
- *
- * This function sets the strobe and data pins to a low state, and then frees the
- * GPIO pins that were requested in the gpioserdev_pinsetup() function.
+ * Releases GPIO pins, setting them to low and freeing kernel resources.
+ * Ensures clean GPIO state when the module is unloaded.
  */
 static void gpioserdev_pinfree(void) {
 	gpio_set_value(GPIOSERDEV_STRB_PINID, 0);
@@ -96,9 +86,6 @@ static void gpioserdev_pinfree(void) {
 
 /**
  * Opens the gpioserdev device file.
- *
- * This function is called when the gpioserdev device file is opened. It does not
- * perform any additional actions and simply returns 0 to indicate success.
  */
 int gpioserdev_open(struct inode *device_file, struct file *instance) {
 	return 0;
@@ -106,9 +93,6 @@ int gpioserdev_open(struct inode *device_file, struct file *instance) {
 
 /**
  * Closes the gpioserdev device file.
- *
- * This function is called when the gpioserdev device file is closed. It does not
- * perform any additional actions and simply returns 0 to indicate success.
  */
 int gpioserdev_close(struct inode *device_file, struct file *instance) {
 	return 0;
@@ -118,13 +102,11 @@ int gpioserdev_close(struct inode *device_file, struct file *instance) {
  * Writes a byte of data to the GPIO pins.
  *
  * This function takes a byte of data and writes it to the GPIO data pin, one bit
- * at a time. It sets the strobe pin high, waits for the GPIOSERDEV_DELAY_US
+ * at a time. It sets the strobe pin high, waits for the delay_us
  * delay, then sets the strobe pin low again. This sequence is repeated for each
  * bit in the byte, from the least significant bit to the most significant bit.
  *
  * After all 8 bits have been written, the function sets the data pin low.
- *
- * @param byte The byte of data to write to the GPIO pins.
  */
 void gpioserdev_write_byte(char byte) {
 	char value;
@@ -133,20 +115,17 @@ void gpioserdev_write_byte(char byte) {
 		value = (byte >> i) & 0x01;
 		gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
 		gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
-		msleep(GPIOSERDEV_DELAY_US);
+		udelay(GPIOSERDEV_DELAY_US);
 		gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
-		msleep(GPIOSERDEV_DELAY_US);
+		udelay(GPIOSERDEV_DELAY_US);
 	}
 	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
 }
 
+
 /**
- * Writes to the gpioserdev device file.
- *
- * This function is called from the write() system call handler for the gpioserdev
- * device. It takes the data from the user-space buffer, copies it to a local
- * variable, and then calls the gpioserdev_write_byte() function to write the
- * byte to the GPIO pins.
+ * Handles write system calls to the device file.
+ * Copies user data and calls byte writing function.
  */
 ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs) {
 	int to_copy, not_copied, delta;
@@ -160,51 +139,7 @@ ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t coun
 }
 
 /**
- * Handles ioctl commands for the gpioserdev device, for testing purposes
- *
- * This function is called when an ioctl system call is made on the gpioserdev
- * device file. It supports two ioctl commands:
- *
- * - GPIOSERDEV_STRBPIN: Sets the value of the strobe pin.
- * - GPIOSERDEV_DATAPIN: Sets the value of the data pin.
- *
- * The function copies the value from the user-provided argument, sets the
- * corresponding GPIO pin.
- */
-long gpioserdev_ioctl(struct file *File, unsigned int cmd, unsigned long arg) {
-	unsigned long value;
-
-	if(copy_from_user(&value ,(int32_t*) arg, sizeof(value))) {
-        printk("data write : Err!\n");
-    }
-
-	switch(cmd) {
-        case GPIOSERDEV_STRBPIN:
-			gpio_set_value(GPIOSERDEV_STRB_PINID, value);
-            printk("set strobe_pin value = %ld\n", value);
-            break;
-        case GPIOSERDEV_DATAPIN:
-			gpio_set_value(GPIOSERDEV_DATA_PINID, value);
-            printk("set data_pin value = %ld\n", value);
-            break;
-        default:
-            printk("default\n");
-            break;
-    }
-	return 0;
-}
-
-/**
- * gpioserdev_init - Initialize the gpioserdev module
- *
- * This function is called when the gpioserdev module is being loaded. It performs the necessary
- * initialization tasks, including:
- *
- * - Allocating a character device region
- * - Creating a device class and device file
- * - Initializing the character device
- * - Registering the character device with the kernel
- * - Setting up the GPIO pins used by the module
+ * Initialize the gpioserdev module
  */
 static int __init gpioserdev_init(void)
 {
@@ -212,7 +147,6 @@ static int __init gpioserdev_init(void)
 		printk("Device number could not be allocated!\n");
 		return -1;
 	}
-	printk("Device number Major: %d, Minor: %d was registered!\n", gpioserdev.devnum >> 20, gpioserdev.devnum && 0xfffff);
 
 	if((gpioserdev.class = class_create("gpioserdev_class")) == NULL) {
 		printk("Device class can not be created!\n");
@@ -249,15 +183,7 @@ class_cleanup:
 }
 
 /**
- * gpioserdev_exit - Clean up and unregister the gpioserdev module
- *
- * This function is called when the gpioserdev module is being unloaded.
- * It performs the necessary cleanup tasks, including:
- *
- * - Freeing the GPIO pins used by the module
- * - Removing the character device entry
- * - Destroying the device and class created for the module
- * - Unregistering the character device region
+ * Cleanup and unregister the gpioserdev module
  */
 static void __exit gpioserdev_exit(void)
 {
@@ -266,7 +192,7 @@ static void __exit gpioserdev_exit(void)
 	device_destroy(gpioserdev.class, gpioserdev.devnum);
 	class_destroy(gpioserdev.class);
 	unregister_chrdev_region(gpioserdev.devnum, 1);
-	printk("gpioserdev module unloaded\n");
+	printk("gpioserdev module removed\n");
 }
 
 module_init(gpioserdev_init);
