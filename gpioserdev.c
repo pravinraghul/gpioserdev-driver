@@ -23,6 +23,7 @@ struct gpioserdev_t {
 };
 
 struct gpioserdev_t gpioserdev;
+static int lsb_first = 1;
 
 // Function prototypes
 static int gpioserdev_open(struct inode *device_file, struct file *instance);
@@ -111,13 +112,25 @@ int gpioserdev_close(struct inode *device_file, struct file *instance) {
 void gpioserdev_write_byte(char byte) {
 	char value;
 	int i;
-	for (i = 0; i < 8; i++) {
-		value = (byte >> i) & 0x01;
-		gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
-		gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
-		udelay(GPIOSERDEV_DELAY_US);
-		gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
-		udelay(GPIOSERDEV_DELAY_US);
+
+	if (lsb_first) {
+		for (i = 0; i < 8; i++) {
+			value = (byte >> i) & 0x01;
+			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
+			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
+			udelay(GPIOSERDEV_DELAY_US);
+			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
+			udelay(GPIOSERDEV_DELAY_US);
+		}
+	} else {
+		for (i = 7; i >= 0; i--) {
+			value = (byte >> i) & 0x01;
+			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
+			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
+			udelay(GPIOSERDEV_DELAY_US);
+			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
+			udelay(GPIOSERDEV_DELAY_US);
+		}
 	}
 	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
 }
@@ -197,7 +210,9 @@ static void __exit gpioserdev_exit(void)
 
 module_init(gpioserdev_init);
 module_exit(gpioserdev_exit);
+module_param(lsb_first, int, 0644);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Pravin Raghul S");
 MODULE_DESCRIPTION("A Custom GPIO Serial Communication Driver");
+MODULE_PARM_DESC(bit_order, "Bit transfer order (LSB or MSB)");
