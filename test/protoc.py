@@ -19,7 +19,7 @@ class Protoc:
         GPIO.setup(self.strbp, GPIO.IN)
         GPIO.setup(self.datap, GPIO.IN)
 
-    def read_byte(self):
+    def read_byte(self, bit_order="lsb"):
         byte = 0
         index = 0
         new_state = 0
@@ -31,7 +31,10 @@ class Protoc:
             new_state = GPIO.input(self.strbp)
             if new_state != old_state:
                 if new_state: # only if the clock is high
-                    byte |= (GPIO.input(self.datap) << index)
+                    if bit_order == "lsb":
+                        byte |= (GPIO.input(self.datap) << index)
+                    else:
+                        byte |= (GPIO.input(self.datap) << (7 - index))
                     index += 1
                 if index == 8:
                     break
