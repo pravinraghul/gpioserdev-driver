@@ -23,7 +23,10 @@ struct gpioserdev_t {
 };
 
 struct gpioserdev_t gpioserdev;
-static int lsb_first = 1;
+
+// Configurable module parameters
+static int delay_us = GPIOSERDEV_DELAY_US;
+static char byte_order[4] = "lsb";  // Default value
 
 // Function prototypes
 static int gpioserdev_open(struct inode *device_file, struct file *instance);
@@ -33,6 +36,9 @@ static ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size
 static int gpioserdev_pinsetup(void);
 static void gpioserdev_pinfree(void);
 
+static int gpioserdev_validate_byteorder(const char *val, const struct kernel_param *kp);
+static int gpioserdev_get_byteorder(char *buffer, const struct kernel_param *kp);
+
 // File operations
 static struct file_operations gpioserdev_fops = {
 	.owner = THIS_MODULE,
@@ -40,6 +46,27 @@ static struct file_operations gpioserdev_fops = {
 	.release = gpioserdev_close,
 	.write = gpioserdev_write,
 };
+
+static const struct kernel_param_ops param_ops = {
+    .set = gpioserdev_validate_byteorder,
+    .get = gpioserdev_get_byteorder,
+};
+
+static int gpioserdev_validate_byteorder(const char *val, const struct kernel_param *kp)
+{
+    if (strcmp(val, "lsb\n") == 0 || strcmp(val, "msb\n") == 0) {
+        strscpy((char *)kp->arg, val, sizeof(byte_order));  // Update value
+        return 0;
+    }
+
+    pr_err("Invalid value for %s. Allowed values: lsb, msb\n", kp->name);
+    return -EINVAL;
+}
+
+static int gpioserdev_get_byteorder(char *buffer, const struct kernel_param *kp)
+{
+    return sprintf(buffer, "%s\n", byte_order);
+}
 
 /**
  * Sets up GPIO pins by getting their numbers from the device tree and configuring them as outputs.
@@ -113,7 +140,7 @@ void gpioserdev_write_byte(char byte) {
 	char value;
 	int i;
 
-	if (lsb_first) {
+	if (strcmp(byte_order, "lsb") == 0) {
 		for (i = 0; i < 8; i++) {
 			value = (byte >> i) & 0x01;
 			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
@@ -134,7 +161,6 @@ void gpioserdev_write_byte(char byte) {
 	}
 	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
 }
-
 
 /**
  * Handles write system calls to the device file.
@@ -210,9 +236,13 @@ static void __exit gpioserdev_exit(void)
 
 module_init(gpioserdev_init);
 module_exit(gpioserdev_exit);
-module_param(lsb_first, int, 0644);
+
+module_param(delay_us, int, 0644);
+MODULE_PARM_DESC(delay_us, "Bit transaction delay in microseconds");
+
+module_param_cb(data_order, &param_ops, byte_order, 0644);
+MODULE_PARM_DESC(data_order, "Byte order: lsb or msb");
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Pravin Raghul S");
 MODULE_DESCRIPTION("A Custom GPIO Serial Communication Driver");
-MODULE_PARM_DESC(bit_order, "Bit transfer order (LSB or MSB)");
