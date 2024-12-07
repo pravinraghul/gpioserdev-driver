@@ -21,5 +21,5 @@ To receive the transferred data, a `test/recv.py` python script is used.,
 
 ```bash
 $ cd test/
-$ python3 recv.py
+$ python3 recv.py <lsb | msb>
 ```
