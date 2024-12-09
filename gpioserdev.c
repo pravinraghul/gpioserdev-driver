@@ -145,18 +145,18 @@ void gpioserdev_write_byte(char byte) {
 			value = (byte >> i) & 0x01;
 			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
 			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
-			udelay(GPIOSERDEV_DELAY_US);
+			udelay(delay_us);
 			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
-			udelay(GPIOSERDEV_DELAY_US);
+			udelay(delay_us);
 		}
 	} else {
 		for (i = 7; i >= 0; i--) {
 			value = (byte >> i) & 0x01;
 			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
 			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
-			udelay(GPIOSERDEV_DELAY_US);
+			udelay(delay_us);
 			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
-			udelay(GPIOSERDEV_DELAY_US);
+			udelay(delay_us);
 		}
 	}
 	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
