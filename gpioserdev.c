@@ -7,6 +7,7 @@
 #include <linux/uaccess.h>
 #include <linux/gpio.h>
 #include <linux/delay.h>
+#include <linux/ioctl.h>
 
  // GPIO pin definitions
 #define GPIOSERDEV_STRB_PINID (531) // GPIO19, based on the /sys/kernel/debug/gpio output
@@ -14,6 +15,11 @@
 
 // Bit transaction delay
 #define GPIOSERDEV_DELAY_US 750
+
+// IOCTL command definitions
+#define GPIOSERDEV_IOC_MAGIC 'k'
+#define GPIOSERDEV_STRBPIN _IOW(GPIOSERDEV_IOC_MAGIC, 1, int)
+#define GPIOSERDEV_DATAPIN _IOW(GPIOSERDEV_IOC_MAGIC, 2, int)
 
 // Device structure
 struct gpioserdev_t {
@@ -32,6 +38,7 @@ static char byte_order[4] = "lsb";  // Default value
 static int gpioserdev_open(struct inode *device_file, struct file *instance);
 static int gpioserdev_close(struct inode *device_file, struct file *instance);
 static ssize_t gpioserdev_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs);
+static long gpioserdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 
 static int gpioserdev_pinsetup(void);
 static void gpioserdev_pinfree(void);
@@ -45,6 +52,7 @@ static struct file_operations gpioserdev_fops = {
 	.open = gpioserdev_open,
 	.release = gpioserdev_close,
 	.write = gpioserdev_write,
+    .unlocked_ioctl = gpioserdev_ioctl,
 };
 
 static const struct kernel_param_ops param_ops = {
@@ -123,6 +131,32 @@ int gpioserdev_open(struct inode *device_file, struct file *instance) {
  * Closes the gpioserdev device file.
  */
 int gpioserdev_close(struct inode *device_file, struct file *instance) {
+	return 0;
+}
+
+// IOCTL handler function
+static long gpioserdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	unsigned long value;
+
+	if(copy_from_user(&value ,(int32_t*) arg, sizeof(value))) {
+		printk("data write : Err!\n");
+	}
+
+    switch(cmd) {
+        case GPIOSERDEV_STRBPIN:
+            gpio_set_value(GPIOSERDEV_STRB_PINID, value);
+			printk("set strobe_pin value = %ld\n", value);
+            break;
+
+        case GPIOSERDEV_DATAPIN:
+            gpio_set_value(GPIOSERDEV_DATA_PINID, value);
+			printk("set data_pin value = %ld\n", value);
+            break;
+
+        default:
+            break; // Invalid command
+    }
 	return 0;
 }
 
