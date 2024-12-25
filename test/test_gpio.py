@@ -4,7 +4,6 @@ import time
 import signal
 import sys
 
-# Pin definitions (BCM numbering)
 TEST_STROBE_PIN = 26  # Connected to GPIO19
 TEST_DATA_PIN = 20    # Connected to GPIO16
 
@@ -19,16 +18,24 @@ def cleanup(signum, frame):
     sys.exit(0)
 
 def monitor_pins():
-    print("Monitoring GPIO pins...")
-    print("Press Ctrl+C to exit")
+    print("Monitoring GPIO pins... Press Ctrl+C to exit")
+    
+    prev_strobe_state = GPIO.input(TEST_STROBE_PIN)
+    prev_data_state = GPIO.input(TEST_DATA_PIN)
     
     try:
         while True:
             strobe_state = GPIO.input(TEST_STROBE_PIN)
             data_state = GPIO.input(TEST_DATA_PIN)
             
-            print(f"\rStrobe Pin (GPIO26): {'HIGH' if strobe_state else 'LOW'}, "
-                  f"Data Pin (GPIO20): {'HIGH' if data_state else 'LOW'}", end='', flush=True)
+            if strobe_state != prev_strobe_state:
+                print(f"Strobe Pin (GPIO26): {'HIGH' if strobe_state else 'LOW'}")
+                prev_strobe_state = strobe_state
+                
+            if data_state != prev_data_state:
+                print(f"Data Pin (GPIO20): {'HIGH' if data_state else 'LOW'}")
+                prev_data_state = data_state
+                
             time.sleep(0.1)
             
     except KeyboardInterrupt:
