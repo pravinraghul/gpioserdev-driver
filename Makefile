@@ -1,42 +1,37 @@
 MODULE=gpioserdev
 CROSS_COMPILER=aarch64-linux-gnu-
-DTOVERLAY=gpioserdev_dtoverlay.dtbo
 
 obj-m  := $(MODULE).o
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 PWD    := $(shell pwd)
 
+all: build
 
-all:
-
-build: dt-build mod-build
-
-clean: dt-clean mod-clean dist-clean
-
-load: dt-load mod-load
-
-mod-build:
+build:
 	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=$(CROSS_COMPILER) M=$(PWD) modules
 
-mod-clean:
+clean:
 	$(MAKE) -C $(KERNELDIR) ARCH=arm CROSS_COMPILE=$(CROSS_COMPILER) M=$(PWD) clean
+	rm -f *.o *.ko *.mod.* *.symvers *.order $(MODULE).dtbo
+
+load: load-dtbo mod-load chmod
 
 mod-load:
 	sudo insmod $(MODULE).ko
 
-mod-unload:
+unload:
 	sudo rmmod $(MODULE)
 
-%.dtbo: %.dts
-	dtc -I dts -O dtb -o $@ $<
+chmod:
+	sudo chmod 766 /dev/$(MODULE)
+	sudo chmod 766 /sys/module/$(MODULE)/parameters/delay_us
+	sudo chmod 766 /sys/module/$(MODULE)/parameters/data_order
 
-dt-build: $(DTOVERLAY)
+$(MODULE).dtbo: $(MODULE).dts
+	dtc -I dts -O dtb -o $(MODULE).dtbo $(MODULE).dts
 
-dt-clean:
-	rm *.dtb *.dtbo -rf
-
-dt-load:
-	sudo dtoverlay $(DTOVERLAY)
+load-dtbo: $(MODULE).dtbo
+	sudo dtoverlay $(MODULE).dtbo
 
 dist-clean:
 	rm *~ -rf
