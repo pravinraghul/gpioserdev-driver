@@ -8,10 +8,12 @@
 #include <linux/gpio.h>
 #include <linux/delay.h>
 #include <linux/ioctl.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
 
- // GPIO pin definitions
-#define GPIOSERDEV_STRB_PINID (531) // GPIO19, based on the /sys/kernel/debug/gpio output
-#define GPIOSERDEV_DATA_PINID (528) // GPIO16, based on the /sys/kernel/debug/gpio output
+// GPIO pin definitions
+static int gpioserdev_strobe_pin;
+static int gpioserdev_data_pin;
 
 // Bit transaction delay
 #define GPIOSERDEV_DELAY_US 750
@@ -81,32 +83,56 @@ static int gpioserdev_get_byteorder(char *buffer, const struct kernel_param *kp)
  * Handles pin allocation, validation, and initial low-state setup.
  */
 static int gpioserdev_pinsetup(void) {
+    struct device_node *np;
+    int ret;
 
-	if(gpio_request(GPIOSERDEV_STRB_PINID, "gpio-strobe")) {
-		printk("Allocation failed for gpio-strobe: %d\n", GPIOSERDEV_STRB_PINID);
-		return -1;
-	}
+    np = of_find_node_by_name(NULL, "gpioserdev");
+    if (!np) {
+        printk("gpioserdev: device tree node not found\n");
+        return -ENODEV;
+    }
 
-	if(gpio_direction_output(GPIOSERDEV_STRB_PINID, 0)) {
-		printk("Direction set output failed for gpio-strobe\n");
-		gpio_free(GPIOSERDEV_STRB_PINID);
-		return -1;
-	}
+    gpioserdev_strobe_pin = of_get_named_gpio(np, "strobe-gpios", 0);
+    if (!gpio_is_valid(gpioserdev_strobe_pin)) {
+        printk("gpioserdev: invalid strobe GPIO\n");
+        return -ENODEV;
+    }
 
-	if(gpio_request(GPIOSERDEV_DATA_PINID, "gpio-data")) {
-		printk("Allocation failed for gpio-data: %d\n", GPIOSERDEV_DATA_PINID);
-		gpio_free(GPIOSERDEV_STRB_PINID);
-		return -1;
-	}
+    gpioserdev_data_pin = of_get_named_gpio(np, "data-gpios", 0);
+    if (!gpio_is_valid(gpioserdev_data_pin)) {
+        printk("gpioserdev: invalid data GPIO\n");
+        return -ENODEV;
+    }
 
-	if(gpio_direction_output(GPIOSERDEV_DATA_PINID, 0)) {
-		printk("Direction set output failed for gpio-data\n");
-		gpio_free(GPIOSERDEV_STRB_PINID);
-		gpio_free(GPIOSERDEV_DATA_PINID);
-		return -1;
-	}
+    ret = gpio_request(gpioserdev_strobe_pin, "gpio-strobe");
+    if (ret) {
+        printk("gpioserdev: failed to request strobe GPIO\n");
+        return ret;
+    }
 
-	return 0;
+    ret = gpio_direction_output(gpioserdev_strobe_pin, 0);
+    if (ret) {
+        printk("gpioserdev: failed to set strobe GPIO direction\n");
+        gpio_free(gpioserdev_strobe_pin);
+        return ret;
+    }
+
+    ret = gpio_request(gpioserdev_data_pin, "gpio-data");
+    if (ret) {
+        printk("gpioserdev: failed to request data GPIO\n");
+        gpio_free(gpioserdev_strobe_pin);
+        return ret;
+    }
+
+    ret = gpio_direction_output(gpioserdev_data_pin, 0);
+    if (ret) {
+        printk("gpioserdev: failed to set data GPIO direction\n");
+        gpio_free(gpioserdev_strobe_pin);
+        gpio_free(gpioserdev_data_pin);
+        return ret;
+    }
+
+    return 0;
 }
 
 /**
@@ -114,10 +140,10 @@ static int gpioserdev_pinsetup(void) {
  * Ensures clean GPIO state when the module is unloaded.
  */
 static void gpioserdev_pinfree(void) {
-	gpio_set_value(GPIOSERDEV_STRB_PINID, 0);
-	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
-	gpio_free(GPIOSERDEV_STRB_PINID);
-	gpio_free(GPIOSERDEV_DATA_PINID);
+    gpio_set_value(gpioserdev_strobe_pin, 0);
+    gpio_set_value(gpioserdev_data_pin, 0);
+    gpio_free(gpioserdev_strobe_pin);
+    gpio_free(gpioserdev_data_pin);
 }
 
 /**
@@ -145,12 +171,12 @@ static long gpioserdev_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
     switch(cmd) {
         case GPIOSERDEV_STRBPIN:
-            gpio_set_value(GPIOSERDEV_STRB_PINID, value);
+            gpio_set_value(gpioserdev_strobe_pin, value);
 			printk("set strobe_pin value = %ld\n", value);
             break;
 
         case GPIOSERDEV_DATAPIN:
-            gpio_set_value(GPIOSERDEV_DATA_PINID, value);
+            gpio_set_value(gpioserdev_data_pin, value);
 			printk("set data_pin value = %ld\n", value);
             break;
 
@@ -177,23 +203,23 @@ void gpioserdev_write_byte(char byte) {
 	if (strcmp(byte_order, "lsb") == 0) {
 		for (i = 0; i < 8; i++) {
 			value = (byte >> i) & 0x01;
-			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
-			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
+			gpio_set_value(gpioserdev_data_pin, value); // set the data
+			gpio_set_value(gpioserdev_strobe_pin, 1); // set strobe 
 			udelay(delay_us);
-			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
+			gpio_set_value(gpioserdev_strobe_pin, 0); // clear strobe
 			udelay(delay_us);
 		}
 	} else {
 		for (i = 7; i >= 0; i--) {
 			value = (byte >> i) & 0x01;
-			gpio_set_value(GPIOSERDEV_DATA_PINID, value); // set the data
-			gpio_set_value(GPIOSERDEV_STRB_PINID, 1); // set strobe 
+			gpio_set_value(gpioserdev_data_pin, value); // set the data
+			gpio_set_value(gpioserdev_strobe_pin, 1); // set strobe 
 			udelay(delay_us);
-			gpio_set_value(GPIOSERDEV_STRB_PINID, 0); // clear strobe
+			gpio_set_value(gpioserdev_strobe_pin, 0); // clear strobe
 			udelay(delay_us);
 		}
 	}
-	gpio_set_value(GPIOSERDEV_DATA_PINID, 0);
+	gpio_set_value(gpioserdev_data_pin, 0);
 }
 
 /**
